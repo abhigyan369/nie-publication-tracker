@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION MODELS
+// ============================================
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String
+  firstName   String
+  lastName    String
+  role        UserRole @default(FACULTY)
+  department  String?
+  designation String?
+  avatar      String?
+
+  isActive        Boolean   @default(true)
+  isEmailVerified Boolean   @default(false)
+  lastLogin       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  faculty         Faculty?
+
+  // Auth related
+  resetToken     String?
+  resetTokenExp  DateTime?
+  verifyToken    String?
+  verifyTokenExp DateTime?
+
+  publications      Publication[]
+  coAuthorMappings  CoAuthor[]
+  activityLogs      ActivityLog[]
+  notifications     Notification[]
+  statusTransitions StatusTransition[]
+  reviews           Review[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  HOD
+  FACULTY
+  REVIEWER
+}
+
+// ============================================
+// SESSION MODEL (for token blacklist)
+// ============================================
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  refreshToken String   @unique
+  deviceInfo   String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// ============================================
+// PUBLICATION MODELS
+// ============================================
+
+model Publication {
+  id              String            @id @default(cuid())
+  title           String
+  abstract        String?
+  publicationType PublicationType
+  journalName     String?
+  conferenceName  String?
+  publisher       String?
+  isbn            String?
+  issn            String?
+  doi             String?           @unique
+  volume          String?
+  issue           String?
+  pages           String?
+  publicationDate DateTime?
+  acceptedDate    DateTime?
+  publishedDate   DateTime?
+  keywords        String[]
+  status          PublicationStatus @default(DRAFT)
+
+  // Research metrics
+  citationCount       Int       @default(0)
+  impactFactor        Float?
+  quartile            Quartile?
+  scopusIndexed       Boolean   @default(false)
+  webOfScienceIndexed Boolean   @default(false)
+
+  // Department & Research Area
+  department   String?
+  researchArea String?
+
+  // Funding information
+  fundingAgency    String?
+  fundingAmount    Float?
+  fundingProjectNo String?
+
+  // File uploads
+  paperUrl             String?
+  certificateUrl       String?
+  supplementaryFileUrl String?
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  authorId      String
+  author        User                @relation(fields: [authorId], references: [id])
+  coAuthors     CoAuthor[]
+  metrics       PublicationMetric[]
+  statusHistory StatusTransition[]
+  reviews       Review[]
+
+  @@index([title])
+  @@index([status])
+  @@index([publicationType])
+  @@index([authorId])
+  @@index([department])
+  @@index([researchArea])
+  @@index([publicationDate])
+  @@index([isDeleted])
+  @@map("publications")
+}
+
+enum PublicationType {
+  JOURNAL_ARTICLE
+  CONFERENCE_PAPER
+  BOOK
+  BOOK_CHAPTER
+  REVIEW_ARTICLE
+  CASE_STUDY
+  SHORT_COMMUNICATION
+  LETTER
+  EDITORIAL
+}
+
+enum PublicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUESTED
+  ACCEPTED
+  PUBLISHED
+  REJECTED
+}
+
+enum Quartile {
+  Q1
+  Q2
+  Q3
+  Q4
+}
+
+// ============================================
+// WORKFLOW & APPROVAL MODELS
+// ============================================
+
+model StatusTransition {
+  id             String             @id @default(cuid())
+  publicationId  String
+  fromStatus     PublicationStatus?
+  toStatus       PublicationStatus
+  comment        String?
+  attachmentsUrl String?
+  createdAt      DateTime           @default(now())
+
+  publication  Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  reviewedById String
+  reviewedBy   User        @relation(fields: [reviewedById], references: [id])
+
+  @@index([publicationId])
+  @@index([createdAt])
+  @@map("status_transitions")
+}
+
+model Review {
+  id            String       @id @default(cuid())
+  publicationId String
+  reviewerId    String
+  status        ReviewStatus
+  comment       String?
+  isInternal    Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  publication Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  reviewer    User        @relation(fields: [reviewerId], references: [id])
+
+  @@index([publicationId])
+  @@index([reviewerId])
+  @@map("reviews")
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+// ============================================
+// NOTIFICATION SYSTEM
+// ============================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      NotificationType
+  link      String?
+  isRead    Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  readAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  PUBLICATION_SUBMITTED
+  PUBLICATION_APPROVED
+  PUBLICATION_REJECTED
+  REVISION_REQUESTED
+  PUBLICATION_PUBLISHED
+  COMMENT_ADDED
+  SYSTEM_ANNOUNCEMENT
+  DEADLINE_REMINDER
+}
+
+// ============================================
+// CO-AUTHOR RELATIONSHIP
+// ============================================
+
+model CoAuthor {
+  id              String   @id @default(cuid())
+  publicationId   String
+  userId          String?
+  name            String
+  email           String?
+  institution     String?
+  department      String?
+  orderIndex      Int      @default(0)
+  isCorresponding Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  publication Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  user        User?       @relation(fields: [userId], references: [id])
+
+  @@unique([publicationId, userId, name])
+  @@map("co_authors")
+}
+
+// ============================================
+// ANALYTICS MODELS
+// ============================================
+
+model PublicationMetric {
+  id            String     @id @default(cuid())
+  publicationId String
+  metricType    MetricType
+  value         Float
+  source        String?
+  recordedAt    DateTime   @default(now())
+
+  publication Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@index([publicationId])
+  @@map("publication_metrics")
+}
+
+enum MetricType {
+  CITATIONS
+  VIEWS
+  DOWNLOADS
+  SOCIAL_MEDIA_SHARES
+  REFERENCES
+}
+
+// ============================================
+// DEPARTMENT & INSTITUTION MODELS
+// ============================================
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  faculty Faculty[]
+
+  @@map("departments")
+}
+
+model Faculty {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  departmentId String
+  joinDate     DateTime
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@map("faculty")
+}
+
+// ============================================
+// AUDIT & ACTIVITY LOG
+// ============================================
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  entityType String?
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("activity_logs")
+}

@@ -1,0 +1,21 @@
+{
+  "name": "nie-publication-tracker",
+  "version": "1.0.0",
+  "description": "Research Publication Management & Analytics Platform for colleges",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix frontend && npm install --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "db:setup": "npm run db:generate --prefix backend && npm run db:push --prefix backend"
+  },
+  "keywords": [
+    "publication",
+    "research",
+    "analytics",
+    "education",
+    "saas"
+  ],
+  "author": "NIE",
+  "license": "MIT"
+}
