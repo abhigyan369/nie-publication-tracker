@@ -66,9 +66,9 @@ function SignupPage() {
       newErrors.email = 'Please enter a valid email address'
     }
 
-    const passwordError = validatePassword(formData.password)
-    if (passwordError) {
-      newErrors.password = passwordError
+    const validationError = validatePassword(formData.password)
+    if (validationError) {
+      newErrors.password = validationError
     }
 
     if (formData.password !== formData.confirmPassword) {
@@ -108,6 +108,8 @@ function SignupPage() {
       ? 50
       : 25
     : 0
+
+  const realTimePasswordError = formData?.password ? validatePassword(formData.password) : null
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/30 p-4">
@@ -296,12 +298,12 @@ function SignupPage() {
                         />
                       ))}
                     </div>
-                    {passwordError && (
+                    {realTimePasswordError && (
                       <div className="text-xs text-destructive flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <circle cx="12" cy="12" r="10" strokeWidth="2" />
                         </svg>
-                        {passwordError}
+                        {realTimePasswordError}
                       </div>
                     )}
                   </div>
