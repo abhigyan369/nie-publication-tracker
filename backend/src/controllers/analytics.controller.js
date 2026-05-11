@@ -1,18 +1,29 @@
 import analyticsService from '../services/analytics.service.js'
 import { ApiResponse } from '../utils/response.util.js'
 
+/**
+ * Analytics Controller
+ *
+ * Provides INSTITUTE-WIDE analytics endpoints.
+ * All data returned represents all publications in the database,
+ * not filtered by the currently logged-in user.
+ *
+ * Authentication is still required but analytics scope is institution-wide.
+ */
 class AnalyticsController {
   /**
-   * Get dashboard overview
+   * Get dashboard overview - Institute-wide statistics
    * GET /api/v1/analytics/overview
    */
   async getOverview(req, res, next) {
     try {
       const { startDate, endDate, department } = req.query
-      const overview = await analyticsService.getDashboardOverview(
-        req.user.id,
-        { startDate, endDate, department }
-      )
+
+      const overview = await analyticsService.getDashboardOverview({
+        startDate,
+        endDate,
+        department,
+      })
 
       return ApiResponse.success(res, overview)
     } catch (error) {
@@ -91,7 +102,7 @@ class AnalyticsController {
   }
 
   /**
-   * Get faculty leaderboard
+   * Get faculty leaderboard - Top authors across institute
    * GET /api/v1/analytics/leaderboard
    */
   async getLeaderboard(req, res, next) {

@@ -2,13 +2,23 @@ import prisma from '../config/database.config.js'
 import { ApiError } from '../utils/response.util.js'
 import logger from '../utils/logger.util.js'
 
+/**
+ * Analytics Service
+ *
+ * Provides INSTITUTE-WIDE analytics for the NIE Publication Tracker.
+ * All queries return data for ALL publications in the database, regardless of author.
+ *
+ * This is a shift from user-level analytics to institution-level analytics,
+ * enabling dashboard views to show aggregate statistics for the entire institute.
+ */
 class AnalyticsService {
   /**
    * Get comprehensive dashboard overview
+   * Returns institute-wide publication statistics
    */
-  async getDashboardOverview(userId = null, filters = {}) {
+  async getDashboardOverview(filters = {}) {
     const { startDate, endDate, department } = filters
-    const where = this.buildWhereClause(userId, { startDate, endDate, department })
+    const where = this.buildWhereClause({ startDate, endDate, department })
 
     const [
       totalPublications,
@@ -21,11 +31,17 @@ class AnalyticsService {
       typeDistribution,
       yearlyTrends,
     ] = await Promise.all([
+      // Total count - only non-deleted publications
       prisma.publication.count({ where: { ...where, isDeleted: false } }),
+      // Published count - status is PUBLISHED
       prisma.publication.count({ where: { ...where, status: 'PUBLISHED', isDeleted: false } }),
+      // Under review - SUBMITTED or UNDER_REVIEW status
       prisma.publication.count({ where: { ...where, status: { in: ['SUBMITTED', 'UNDER_REVIEW'] }, isDeleted: false } }),
+      // Rejected count
       prisma.publication.count({ where: { ...where, status: 'REJECTED', isDeleted: false } }),
+      // Sum of all citations
       prisma.publication.aggregate({ where: { ...where, isDeleted: false }, _sum: { citationCount: true } }),
+      // Average impact factor
       prisma.publication.aggregate({
         where: { ...where, impactFactor: { not: null }, isDeleted: false },
         _avg: { impactFactor: true },
@@ -38,6 +54,8 @@ class AnalyticsService {
     // Calculate acceptance rate
     const totalReviewed = publishedCount + rejectedCount
     const acceptanceRate = totalReviewed > 0 ? ((publishedCount / totalReviewed) * 100).toFixed(1) : 0
+
+    logger.info(`Analytics - Institute-wide: total=${totalPublications}, published=${publishedCount}, pending=${pendingCount}`)
 
     return {
       overview: {
@@ -57,12 +75,13 @@ class AnalyticsService {
 
   /**
    * Get department-wise analytics
+   * Aggregates publications by department across the institute
    */
   async getDepartmentAnalytics(filters = {}) {
     const { startDate, endDate } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate })
+    const where = this.buildWhereClause({ startDate, endDate })
 
-    // Get publications grouped by department
+    // Get all publications grouped by department
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false, department: { not: null } },
       select: {
@@ -131,10 +150,11 @@ class AnalyticsService {
 
   /**
    * Get monthly publication trends
+   * Shows publication counts by month for the last 12 months
    */
   async getMonthlyTrends(filters = {}) {
     const { startDate, endDate, department } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate, department })
+    const where = this.buildWhereClause({ startDate, endDate, department })
 
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false, publicationDate: { not: null } },
@@ -159,18 +179,20 @@ class AnalyticsService {
       return acc
     }, {})
 
-    // Fill in missing months and sort
-    const sortedMonths = Object.values(monthlyData)
+    // Sort and return last 12 months
+    return Object.values(monthlyData)
       .sort((a, b) => a.month.localeCompare(b.month))
-      .slice(-12) // Last 12 months
-
-    return sortedMonths
+      .slice(-12)
   }
 
   /**
    * Get yearly trends (last 5 years)
+   * Aggregates publications by year
    */
-  async getYearlyTrends(where) {
+  async getYearlyTrends(filters = {}) {
+    const { startDate, endDate, department } = filters
+    const where = this.buildWhereClause({ startDate, endDate, department })
+
     const fiveYearsAgo = new Date()
     fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
 
@@ -229,10 +251,11 @@ class AnalyticsService {
 
   /**
    * Get citation analysis
+   * Returns top cited publications and citation distribution
    */
   async getCitationAnalysis(filters = {}) {
     const { startDate, endDate, department } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate, department })
+    const where = this.buildWhereClause({ startDate, endDate, department })
 
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false, citationCount: { gt: 0 } },
@@ -286,6 +309,7 @@ class AnalyticsService {
 
   /**
    * Get quartile distribution
+   * Shows count of publications in each quartile (Q1-Q4)
    */
   async getQuartileDistribution(where) {
     const publications = await prisma.publication.findMany({
@@ -306,6 +330,7 @@ class AnalyticsService {
 
   /**
    * Get publication type distribution
+   * Shows count of publications by type (JOURNAL_ARTICLE, CONFERENCE_PAPER, etc.)
    */
   async getTypeDistribution(where) {
     const publications = await prisma.publication.groupBy({
@@ -322,10 +347,11 @@ class AnalyticsService {
 
   /**
    * Get faculty leaderboard
+   * Ranks authors by their publication metrics across the institute
    */
   async getFacultyLeaderboard(filters = {}) {
     const { startDate, endDate, department, limit = 10 } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate, department })
+    const where = this.buildWhereClause({ startDate, endDate, department })
 
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false },
@@ -388,10 +414,11 @@ class AnalyticsService {
 
   /**
    * Get research area analytics
+   * Shows publication distribution across research areas
    */
   async getResearchAreaAnalytics(filters = {}) {
     const { startDate, endDate } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate })
+    const where = this.buildWhereClause({ startDate, endDate })
 
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false, researchArea: { not: null } },
@@ -428,10 +455,11 @@ class AnalyticsService {
 
   /**
    * Get funding analytics
+   * Shows publication distribution by funding agency
    */
   async getFundingAnalytics(filters = {}) {
     const { startDate, endDate } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate })
+    const where = this.buildWhereClause({ startDate, endDate })
 
     const publications = await prisma.publication.findMany({
       where: { ...where, isDeleted: false, fundingAgency: { not: null } },
@@ -491,10 +519,11 @@ class AnalyticsService {
 
   /**
    * Get acceptance/rejection ratio
+   * Returns counts of publications by their current status
    */
   async getAcceptanceRatio(filters = {}) {
     const { startDate, endDate, department } = filters
-    const where = this.buildWhereClause(null, { startDate, endDate, department })
+    const where = this.buildWhereClause({ startDate, endDate, department })
 
     const [published, rejected, underReview, revisionRequested] = await Promise.all([
       prisma.publication.count({ where: { ...where, status: 'PUBLISHED', isDeleted: false } }),
@@ -523,10 +552,13 @@ class AnalyticsService {
     }
   }
 
-  // Helper: Build where clause from filters
-  buildWhereClause(userId, filters = {}) {
+  /**
+   * Build where clause from filters
+   * Note: userId filtering is NOT applied for institute-wide analytics
+   * Only date range and department filters are supported
+   */
+  buildWhereClause(filters = {}) {
     const where = {}
-    if (userId) where.authorId = userId
 
     if (filters.startDate || filters.endDate) {
       where.publicationDate = {}

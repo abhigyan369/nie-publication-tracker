@@ -1,5 +1,11 @@
 import api from '../lib/api'
 
+/**
+ * Analytics Service - Frontend
+ *
+ * Fetches INSTITUTE-WIDE analytics from the backend.
+ * All data represents all publications across the institute.
+ */
 export const analyticsService = {
   // Overview
   getOverview: async (params = {}) => {
@@ -54,15 +60,27 @@ export const analyticsService = {
   /**
    * Composite helper used by DashboardPage.
    * Fetches overview + leaderboard in parallel and merges into a single object.
+   *
+   * Response format:
+   * {
+   *   overview: { totalPublications, publishedCount, pendingCount, ... },
+   *   topAuthors: [{ id, firstName, lastName, department, publicationCount }, ...]
+   * }
    */
   getDashboardStats: async () => {
     const [overviewRes, leaderboardRes] = await Promise.all([
       api.get('/analytics/overview'),
       api.get('/analytics/leaderboard', { params: { limit: 5 } }),
     ])
+
+    // Backend returns: { success: true, data: { overview: {...}, ... } }
+    // Extract the overview object from the response
+    const overviewData = overviewRes.data?.data?.overview ?? overviewRes.data?.data ?? {}
+    const leaderboardData = leaderboardRes.data?.data ?? []
+
     return {
-      overview: overviewRes.data?.data?.overview ?? {},
-      topAuthors: (leaderboardRes.data?.data ?? []).map((a) => ({
+      overview: overviewData,
+      topAuthors: leaderboardData.map((a) => ({
         id: a.authorId,
         firstName: a.name?.split(' ')[0] ?? '',
         lastName: a.name?.split(' ').slice(1).join(' ') ?? '',
@@ -74,4 +92,3 @@ export const analyticsService = {
 }
 
 export default analyticsService
-

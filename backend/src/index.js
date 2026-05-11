@@ -41,13 +41,30 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) * 60 * 1000 || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: { message: 'Too many requests, please try again later.' },
+// ── Rate limiting ────────────────────────────────────────────────────────────
+const isDev = (process.env.NODE_ENV || 'development') === 'development'
+
+// Strict limiter for auth endpoints — prevents brute-force attacks
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,          // 15 minutes
+  max: isDev ? 200 : 20,             // lenient in dev, strict in prod
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many authentication requests. Please wait 15 minutes before trying again.' },
+  skipSuccessfulRequests: true,       // only count failed requests toward the limit
 })
-app.use('/api', limiter)
+
+// General API limiter — generous for normal app usage
+const generalLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) * 60 * 1000 || 15 * 60 * 1000,
+  max: isDev ? 2000 : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later.' },
+})
+
+app.use('/api/v1/auth', authLimiter)
+app.use('/api', generalLimiter)
 
 // ============================================
 // REQUEST PROCESSING
