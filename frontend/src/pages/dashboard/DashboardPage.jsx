@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
-import { BookOpen, TrendingUp, Clock, CheckCircle, Users, ArrowUpRight, Loader2 } from 'lucide-react'
+import { BookOpen, TrendingUp, Clock, CheckCircle, Users, ArrowUpRight, Loader2, AlertCircle } from 'lucide-react'
 import analyticsService from '../../services/analytics.service'
+import publicationService from '../../services/publication.service'
 import { useAuth } from '../../context/AuthContext'
 
 function StatCard({ title, value, change, icon: Icon, trend }) {
@@ -33,15 +34,25 @@ function StatCard({ title, value, change, icon: Icon, trend }) {
 function DashboardPage() {
   const { user } = useAuth()
   const [stats, setStats] = useState(null)
+  const [recentPublications, setRecentPublications] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await analyticsService.getDashboardStats()
-        setStats(response.data.data)
-      } catch (error) {
-        console.error('Failed to fetch stats:', error)
+        setError(null)
+        const [dashData, pubsRes] = await Promise.all([
+          analyticsService.getDashboardStats(),
+          publicationService.getAll({ limit: 5, sortBy: 'createdAt', order: 'desc' }),
+        ])
+        setStats(dashData)
+        // publications endpoint returns { data: { data: [...], ... } } via ApiResponse
+        const pubs = pubsRes.data?.data?.data ?? pubsRes.data?.data ?? []
+        setRecentPublications(Array.isArray(pubs) ? pubs : [])
+      } catch (err) {
+        console.error('Failed to fetch dashboard stats:', err)
+        setError('Failed to load dashboard data. Please try again.')
       } finally {
         setLoading(false)
       }
@@ -49,10 +60,22 @@ function DashboardPage() {
     fetchStats()
   }, [])
 
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-3 text-destructive">
+          <AlertCircle className="h-6 w-6" />
+          <p className="text-sm font-medium">{error}</p>
+        </div>
       </div>
     )
   }
@@ -108,8 +131,8 @@ function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {stats?.recentPublications?.length > 0 ? (
-                stats.recentPublications.map((pub) => (
+              {recentPublications.length > 0 ? (
+                recentPublications.map((pub) => (
                   <div
                     key={pub.id}
                     className="flex items-start justify-between p-3 rounded-lg hover:bg-accent transition-colors cursor-pointer"
@@ -117,7 +140,7 @@ function DashboardPage() {
                     <div className="space-y-1">
                       <p className="font-medium text-foreground line-clamp-1">{pub.title}</p>
                       <p className="text-sm text-muted-foreground">
-                        {pub.author?.firstName} {pub.author?.lastName}
+                        {pub.author?.firstName ?? ''} {pub.author?.lastName ?? ''}
                       </p>
                     </div>
                     <Badge variant={pub.status === 'PUBLISHED' ? 'success' : 'warning'}>
@@ -145,7 +168,7 @@ function DashboardPage() {
               {stats?.topAuthors?.length > 0 ? (
                 stats.topAuthors.map((author, index) => (
                   <div
-                    key={author.id}
+                    key={author.id ?? index}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">

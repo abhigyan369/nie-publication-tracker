@@ -50,6 +50,28 @@ export const analyticsService = {
   exportReport: async () => {
     return api.get('/analytics/export')
   },
+
+  /**
+   * Composite helper used by DashboardPage.
+   * Fetches overview + leaderboard in parallel and merges into a single object.
+   */
+  getDashboardStats: async () => {
+    const [overviewRes, leaderboardRes] = await Promise.all([
+      api.get('/analytics/overview'),
+      api.get('/analytics/leaderboard', { params: { limit: 5 } }),
+    ])
+    return {
+      overview: overviewRes.data?.data?.overview ?? {},
+      topAuthors: (leaderboardRes.data?.data ?? []).map((a) => ({
+        id: a.authorId,
+        firstName: a.name?.split(' ')[0] ?? '',
+        lastName: a.name?.split(' ').slice(1).join(' ') ?? '',
+        department: a.department ?? '',
+        publicationCount: a.total ?? 0,
+      })),
+    }
+  },
 }
 
 export default analyticsService
+
