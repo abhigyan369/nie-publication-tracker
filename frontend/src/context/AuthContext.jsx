@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { authService } from '../services/auth.service'
 import api from '../lib/api'
 
@@ -6,9 +6,14 @@ const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  // authLoading: true only during the boot-time session check
+  const [authLoading, setAuthLoading] = useState(true)
+  // loading: true during individual operations (login, register, etc.)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [toast, setToast] = useState(null)
+  // Prevent concurrent login/register submissions
+  const operationInFlight = useRef(false)
 
   // Show toast notification
   const showToast = useCallback((message, type = 'info') => {
@@ -16,52 +21,61 @@ export function AuthProvider({ children }) {
     setTimeout(() => setToast(null), 5000)
   }, [])
 
-  // Initialize auth state from localStorage
+  // Initialize auth state from localStorage — runs once on mount
   useEffect(() => {
+    let cancelled = false
     const initAuth = async () => {
       const token = localStorage.getItem('token')
       if (token) {
         try {
           const response = await authService.getCurrentUser()
-          setUser(response.data.data)
-        } catch (error) {
-          // Token invalid or expired
+          if (!cancelled) setUser(response.data.data)
+        } catch {
+          // Token invalid, expired, or server error — clear silently
           localStorage.removeItem('token')
           localStorage.removeItem('refreshToken')
         }
       }
-      setLoading(false)
+      if (!cancelled) setAuthLoading(false)
     }
     initAuth()
+    return () => { cancelled = true }
   }, [])
 
   // Login
   const login = async (email, password) => {
+    if (operationInFlight.current) return
+    operationInFlight.current = true
     setLoading(true)
     setError(null)
     try {
       const response = await authService.login(email, password)
       const { user: userData, token, refreshToken } = response.data.data
 
-      // Store tokens
       localStorage.setItem('token', token)
       localStorage.setItem('refreshToken', refreshToken)
 
       setUser(userData)
       showToast('Welcome back!', 'success')
       return userData
-    } catch (error) {
-      const message = error.response?.data?.message || 'Login failed. Please try again.'
+    } catch (err) {
+      const is429 = err.response?.status === 429
+      const message = is429
+        ? 'Too many login attempts. Please wait a few minutes before trying again.'
+        : (err.response?.data?.message || 'Login failed. Please check your credentials.')
       setError(message)
       showToast(message, 'error')
-      throw error
+      throw err
     } finally {
       setLoading(false)
+      operationInFlight.current = false
     }
   }
 
   // Register
   const register = async (userData) => {
+    if (operationInFlight.current) return
+    operationInFlight.current = true
     setLoading(true)
     setError(null)
     try {
@@ -74,13 +88,17 @@ export function AuthProvider({ children }) {
       setUser(newUser)
       showToast('Registration successful! Welcome to NIE Publications.', 'success')
       return newUser
-    } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed. Please try again.'
+    } catch (err) {
+      const is429 = err.response?.status === 429
+      const message = is429
+        ? 'Too many registration attempts. Please wait a few minutes.'
+        : (err.response?.data?.message || 'Registration failed. Please try again.')
       setError(message)
       showToast(message, 'error')
-      throw error
+      throw err
     } finally {
       setLoading(false)
+      operationInFlight.current = false
     }
   }
 
@@ -163,6 +181,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
+        authLoading,
         loading,
         error,
         toast,

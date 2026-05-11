@@ -17,9 +17,9 @@ import NotificationsPage from './pages/notifications/NotificationsPage'
 import ImportPage from './pages/import/ImportPage'
 
 function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth()
+  const { user, authLoading } = useAuth()
 
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -38,9 +38,9 @@ function ProtectedRoute({ children }) {
 }
 
 function AdminRoute({ children }) {
-  const { user, loading } = useAuth()
+  const { user, authLoading } = useAuth()
 
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="h-12 w-12 rounded-full border-4 border-primary/30 border-t-primary animate-spin" />
@@ -60,9 +60,9 @@ function AdminRoute({ children }) {
 }
 
 function PublicRoute({ children }) {
-  const { user, loading } = useAuth()
+  const { user, authLoading } = useAuth()
 
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="h-12 w-12 rounded-full border-4 border-primary/30 border-t-primary animate-spin" />

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Link, useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../../components/ui/Button'
@@ -11,8 +11,10 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
-  const { login, loading, user } = useAuth()
+  const { login, loading, user, showToast } = useAuth()
   const navigate = useNavigate()
+  // Guard against double-submission (e.g. rapid Enter presses)
+  const submittingRef = useRef(false)
 
   // Redirect if already logged in
   if (user) {
@@ -41,12 +43,17 @@ function LoginPage() {
     e.preventDefault()
 
     if (!validateForm()) return
+    // Prevent duplicate submissions
+    if (submittingRef.current || loading) return
+    submittingRef.current = true
 
     try {
       await login(email, password)
       navigate('/dashboard')
     } catch (error) {
-      // Error handled by context
+      // Error is handled and displayed by AuthContext
+    } finally {
+      submittingRef.current = false
     }
   }
 
