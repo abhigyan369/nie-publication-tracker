@@ -24,17 +24,19 @@ class PublicationService {
     } = filters
 
     const skip = (page - 1) * limit
-    const where = {}
+    const where = { isDeleted: false }
 
-    // Search filter
+    // Search filter — matches across multiple text fields and keyword array
     if (search) {
+      const terms = search.trim().split(/\s+/).filter(Boolean)
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
         { abstract: { contains: search, mode: 'insensitive' } },
         { journalName: { contains: search, mode: 'insensitive' } },
         { conferenceName: { contains: search, mode: 'insensitive' } },
         { doi: { contains: search, mode: 'insensitive' } },
-        { keywords: { hasSome: [search.split(' ')] } },
+        // hasSome expects a flat string array, not a nested array
+        { keywords: { hasSome: terms } },
       ]
     }
 
@@ -118,6 +120,50 @@ class PublicationService {
         hasPrevPage: page > 1,
       },
     }
+  }
+
+  /**
+   * Get lightweight autocomplete suggestions for a search query.
+   * Returns up to 8 matching publication titles + author info.
+   */
+  async getSearchSuggestions(query, limit = 8) {
+    if (!query || query.trim().length < 2) return []
+
+    const q = query.trim()
+    const terms = q.split(/\s+/).filter(Boolean)
+
+    const publications = await prisma.publication.findMany({
+      where: {
+        isDeleted: false,
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { journalName: { contains: q, mode: 'insensitive' } },
+          { conferenceName: { contains: q, mode: 'insensitive' } },
+          { keywords: { hasSome: terms } },
+          {
+            author: {
+              OR: [
+                { firstName: { contains: q, mode: 'insensitive' } },
+                { lastName: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        publicationType: true,
+        status: true,
+        author: {
+          select: { firstName: true, lastName: true },
+        },
+      },
+      take: limit,
+      orderBy: { title: 'asc' },
+    })
+
+    return publications
   }
 
   /**

@@ -179,6 +179,17 @@ router.get(
 // GET /api/v1/publications/stats - Get publication statistics
 router.get('/stats', authenticate, publicationController.getStatistics)
 
+// GET /api/v1/publications/suggestions - Autocomplete search suggestions
+router.get(
+  '/suggestions',
+  [
+    query('q').optional().isString().isLength({ max: 200 }),
+    query('limit').optional().isInt({ min: 1, max: 20 }),
+  ],
+  validate,
+  publicationController.getSearchSuggestions
+)
+
 // GET /api/v1/publications/:id - Get single publication
 router.get(
   '/:id',

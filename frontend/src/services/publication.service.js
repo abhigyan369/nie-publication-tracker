@@ -9,6 +9,13 @@ export const publicationService = {
   },
 
   /**
+   * Get autocomplete suggestions for search
+   */
+  getSuggestions: async (q, limit = 8) => {
+    return api.get('/publications/suggestions', { params: { q, limit } })
+  },
+
+  /**
    * Get publication statistics
    */
   getStats: async () => {

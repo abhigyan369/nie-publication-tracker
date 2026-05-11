@@ -1,33 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import publicationService from '../../services/publication.service'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/Table'
+import SearchAutocomplete from '../../components/common/SearchAutocomplete'
 import {
   Plus,
-  Search,
   Loader2,
   BookOpen,
   Filter,
   ChevronLeft,
   ChevronRight,
-  ArrowUpDown,
-  MoreHorizontal,
   Eye,
   Edit,
   Trash2,
   X,
-  Calendar,
   User,
-  FileText,
+  AlertCircle,
 } from 'lucide-react'
 import { formatDate } from '../../lib/utils'
 import PublicationModal from './PublicationModal'
 import DeleteModal from '../../components/common/DeleteModal'
+
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const statusColors = {
   DRAFT: 'secondary',
@@ -51,114 +49,171 @@ const typeLabels = {
   EDITORIAL: 'Editorial',
 }
 
+const YEARS = Array.from({ length: 15 }, (_, i) => new Date().getFullYear() - i)
+
+// ── Component ────────────────────────────────────────────────────────────────
+
 function PublicationsPage() {
   const navigate = useNavigate()
   const { showToast } = useAuth()
+
+  // ── List state ───────────────────────────────────────────────────────────
   const [publications, setPublications] = useState([])
   const [loading, setLoading] = useState(true)
-  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 })
+  const [error, setError] = useState(null)
+  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0, hasNextPage: false })
 
-  // Filters
+  // ── Filter state ─────────────────────────────────────────────────────────
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [yearFilter, setYearFilter] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
-  // Modals
+  // ── Modal state ──────────────────────────────────────────────────────────
   const [showModal, setShowModal] = useState(false)
   const [editPublication, setEditPublication] = useState(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deletePublication, setDeletePublication] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
-  // Fetch publications
-  const fetchPublications = async (page = 1, filters = {}) => {
-    setLoading(true)
-    try {
-      const params = {
-        page,
-        limit: 10,
-        ...filters,
+  // Track in-flight fetch to prevent duplicate calls
+  const fetchControllerRef = useRef(null)
+
+  // ── Core fetch ───────────────────────────────────────────────────────────
+  /**
+   * Fetches publications.
+   * Accepts explicit overrides so callers can pass fresh values without
+   * depending on React state that may not have updated yet.
+   */
+  const fetchPublications = useCallback(
+    async ({
+      page = 1,
+      searchVal = search,
+      statusVal = statusFilter,
+      typeVal = typeFilter,
+      yearVal = yearFilter,
+    } = {}) => {
+      // Cancel any in-flight request
+      if (fetchControllerRef.current) fetchControllerRef.current.abort()
+      fetchControllerRef.current = new AbortController()
+
+      setLoading(true)
+      setError(null)
+
+      try {
+        const params = { page, limit: 10 }
+        if (searchVal) params.search = searchVal
+        if (statusVal) params.status = statusVal
+        if (typeVal) params.type = typeVal
+        if (yearVal) {
+          params.startDate = `${yearVal}-01-01`
+          params.endDate = `${yearVal}-12-31`
+        }
+
+        const response = await publicationService.getAll(params)
+
+        // API: { success, data: { publications: [], pagination: {} } }
+        const payload = response.data?.data
+        setPublications(payload?.publications ?? [])
+        setPagination(
+          payload?.pagination ?? { page: 1, totalPages: 1, total: 0, hasNextPage: false },
+        )
+      } catch (err) {
+        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return
+        console.error('Failed to load publications:', err)
+        setError('Failed to load publications. Please try again.')
+        showToast?.('Failed to load publications', 'error')
+      } finally {
+        setLoading(false)
       }
-      if (search) params.search = search
-      if (statusFilter) params.status = statusFilter
-      if (typeFilter) params.type = typeFilter
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [], // intentionally empty — we pass explicit args each time
+  )
 
-      const response = await publicationService.getAll(params)
-      setPublications(response.data.data.publications)
-      setPagination(response.data.data.pagination)
-    } catch (error) {
-      showToast('Failed to load publications', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Initial load
-  useState(() => {
+  // ── Initial load ─────────────────────────────────────────────────────────
+  useEffect(() => {
     fetchPublications()
+    return () => fetchControllerRef.current?.abort()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Autocomplete suggestions ─────────────────────────────────────────────
+  const fetchSuggestions = useCallback(async (q) => {
+    const res = await publicationService.getSuggestions(q, 8)
+    return res.data?.data ?? []
   }, [])
 
-  // Handle search
-  const handleSearch = (e) => {
-    e.preventDefault()
-    fetchPublications(1, {})
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  /** Called when user presses Enter or clicks a suggestion */
+  const handleSearch = (val) => {
+    const v = val ?? search
+    setSearch(v)
+    fetchPublications({ page: 1, searchVal: v })
   }
 
-  // Handle filter change
-  const handleFilterChange = () => {
-    fetchPublications(1, {})
+  const handleClearSearch = () => {
+    setSearch('')
+    fetchPublications({ page: 1, searchVal: '' })
   }
 
-  // Clear filters
+  const handleStatusChange = (val) => {
+    setStatusFilter(val)
+    fetchPublications({ page: 1, statusVal: val })
+  }
+
+  const handleTypeChange = (val) => {
+    setTypeFilter(val)
+    fetchPublications({ page: 1, typeVal: val })
+  }
+
+  const handleYearChange = (val) => {
+    setYearFilter(val)
+    fetchPublications({ page: 1, yearVal: val })
+  }
+
   const clearFilters = () => {
     setSearch('')
     setStatusFilter('')
     setTypeFilter('')
-    fetchPublications(1, {})
+    setYearFilter('')
+    fetchPublications({ page: 1, searchVal: '', statusVal: '', typeVal: '', yearVal: '' })
   }
 
-  // Open create modal
-  const openCreateModal = () => {
-    setEditPublication(null)
-    setShowModal(true)
+  const handlePageChange = (newPage) => {
+    fetchPublications({ page: newPage })
   }
 
-  // Open edit modal
-  const openEditModal = (pub) => {
-    setEditPublication(pub)
-    setShowModal(true)
-  }
+  // ── Modal helpers ─────────────────────────────────────────────────────────
 
-  // Handle modal close
-  const handleModalClose = () => {
-    setShowModal(false)
-    setEditPublication(null)
-  }
-
-  // Handle save success
+  const openCreateModal = () => { setEditPublication(null); setShowModal(true) }
+  const openEditModal = (pub) => { setEditPublication(pub); setShowModal(true) }
+  const handleModalClose = () => { setShowModal(false); setEditPublication(null) }
   const handleSaveSuccess = () => {
     handleModalClose()
-    fetchPublications(pagination.page, {})
+    fetchPublications({ page: pagination.page })
   }
 
-  // Handle delete
   const handleDelete = async () => {
     setDeleting(true)
     try {
       await publicationService.delete(deletePublication.id)
-      showToast('Publication deleted successfully', 'success')
+      showToast?.('Publication deleted successfully', 'success')
       setShowDeleteModal(false)
       setDeletePublication(null)
-      fetchPublications(pagination.page, {})
-    } catch (error) {
-      showToast('Failed to delete publication', 'error')
+      fetchPublications({ page: pagination.page })
+    } catch {
+      showToast?.('Failed to delete publication', 'error')
     } finally {
       setDeleting(false)
     }
   }
 
-  const hasActiveFilters = search || statusFilter || typeFilter
+  const hasActiveFilters = search || statusFilter || typeFilter || yearFilter
+  const activeFilterCount = [search, statusFilter, typeFilter, yearFilter].filter(Boolean).length
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -166,9 +221,7 @@ function PublicationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Publications</h2>
-          <p className="text-muted-foreground">
-            Manage your research publications
-          </p>
+          <p className="text-muted-foreground">Manage your research publications</p>
         </div>
         <Button onClick={openCreateModal}>
           <Plus className="h-4 w-4 mr-2" />
@@ -180,67 +233,61 @@ function PublicationsPage() {
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Search */}
-            <form onSubmit={handleSearch} className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Search by title, journal, DOI..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background pl-10 pr-4 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-            </form>
+            {/* Autocomplete search */}
+            <SearchAutocomplete
+              value={search}
+              onChange={setSearch}
+              onSearch={handleSearch}
+              onClear={handleClearSearch}
+              fetchSuggestions={fetchSuggestions}
+              placeholder="Search by title, author, keyword…"
+              debounceMs={300}
+            />
 
-            {/* Filter Toggle */}
+            {/* Filter toggle */}
             <Button
               variant={showFilters ? 'default' : 'outline'}
-              onClick={() => setShowFilters(!showFilters)}
+              onClick={() => setShowFilters((v) => !v)}
             >
               <Filter className="h-4 w-4 mr-2" />
               Filters
-              {hasActiveFilters && (
-                <span className="ml-2 h-5 w-5 rounded-full bg-primary-foreground text-primary text-xs flex items-center justify-center">
-                  {(search ? 1 : 0) + (statusFilter ? 1 : 0) + (typeFilter ? 1 : 0)}
+              {activeFilterCount > 0 && (
+                <span className="ml-2 h-5 w-5 rounded-full bg-primary-foreground text-primary text-xs flex items-center justify-center font-semibold">
+                  {activeFilterCount}
                 </span>
               )}
             </Button>
           </div>
 
-          {/* Expanded Filters */}
+          {/* Expanded filter panel */}
           {showFilters && (
-            <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
+            <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
+              {/* Status */}
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">Status</label>
                 <select
                   value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value)
-                    handleFilterChange()
-                  }}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm"
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <option value="">All Status</option>
+                  <option value="">All Statuses</option>
                   <option value="DRAFT">Draft</option>
                   <option value="SUBMITTED">Submitted</option>
                   <option value="UNDER_REVIEW">Under Review</option>
+                  <option value="REVISION_REQUESTED">Revision Requested</option>
                   <option value="ACCEPTED">Accepted</option>
                   <option value="PUBLISHED">Published</option>
                   <option value="REJECTED">Rejected</option>
                 </select>
               </div>
 
+              {/* Type */}
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">Type</label>
                 <select
                   value={typeFilter}
-                  onChange={(e) => {
-                    setTypeFilter(e.target.value)
-                    handleFilterChange()
-                  }}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm"
+                  onChange={(e) => handleTypeChange(e.target.value)}
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">All Types</option>
                   <option value="JOURNAL_ARTICLE">Journal Article</option>
@@ -248,15 +295,65 @@ function PublicationsPage() {
                   <option value="BOOK">Book</option>
                   <option value="BOOK_CHAPTER">Book Chapter</option>
                   <option value="REVIEW_ARTICLE">Review Article</option>
+                  <option value="CASE_STUDY">Case Study</option>
+                  <option value="SHORT_COMMUNICATION">Short Communication</option>
+                  <option value="LETTER">Letter</option>
+                  <option value="EDITORIAL">Editorial</option>
                 </select>
               </div>
 
+              {/* Year */}
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">Year</label>
+                <select
+                  value={yearFilter}
+                  onChange={(e) => handleYearChange(e.target.value)}
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">All Years</option>
+                  {YEARS.map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Clear */}
               <div className="flex items-end">
-                <Button variant="outline" onClick={clearFilters} className="w-full">
+                <Button variant="outline" onClick={clearFilters} className="w-full" disabled={!hasActiveFilters}>
                   <X className="h-4 w-4 mr-2" />
                   Clear Filters
                 </Button>
               </div>
+            </div>
+          )}
+
+          {/* Active filter chips */}
+          {hasActiveFilters && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {search && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-3 py-1 font-medium">
+                  Search: "{search}"
+                  <button onClick={handleClearSearch} className="hover:text-primary/60 ml-1"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {statusFilter && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-3 py-1 font-medium">
+                  Status: {statusFilter.replace(/_/g, ' ')}
+                  <button onClick={() => handleStatusChange('')} className="hover:text-primary/60 ml-1"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {typeFilter && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-3 py-1 font-medium">
+                  Type: {typeLabels[typeFilter] ?? typeFilter}
+                  <button onClick={() => handleTypeChange('')} className="hover:text-primary/60 ml-1"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {yearFilter && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-3 py-1 font-medium">
+                  Year: {yearFilter}
+                  <button onClick={() => handleYearChange('')} className="hover:text-primary/60 ml-1"><X className="h-3 w-3" /></button>
+                </span>
+              )}
             </div>
           )}
         </CardContent>
@@ -268,7 +365,12 @@ function PublicationsPage() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <BookOpen className="h-5 w-5" />
-              All Publications ({pagination.total})
+              All Publications
+              {!loading && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({pagination.total})
+                </span>
+              )}
             </span>
           </CardTitle>
         </CardHeader>
@@ -276,6 +378,16 @@ function PublicationsPage() {
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center space-y-3">
+                <AlertCircle className="h-10 w-10 text-destructive mx-auto" />
+                <p className="text-sm text-destructive font-medium">{error}</p>
+                <Button variant="outline" size="sm" onClick={() => fetchPublications()}>
+                  Retry
+                </Button>
+              </div>
             </div>
           ) : publications.length > 0 ? (
             <>
@@ -300,7 +412,7 @@ function PublicationsPage() {
                           {pub.title}
                         </Link>
                         <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                          <User className="h-3 w-3" />
+                          <User className="h-3 w-3 shrink-0" />
                           {pub.author?.firstName} {pub.author?.lastName}
                           {pub.coAuthors?.length > 0 && (
                             <span className="text-muted-foreground/50">
@@ -310,8 +422,8 @@ function PublicationsPage() {
                         </p>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-xs">
-                          {typeLabels[pub.publicationType]}
+                        <Badge variant="secondary" className="text-xs whitespace-nowrap">
+                          {typeLabels[pub.publicationType] ?? pub.publicationType}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -341,10 +453,7 @@ function PublicationsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => {
-                              setDeletePublication(pub)
-                              setShowDeleteModal(true)
-                            }}
+                            onClick={() => { setDeletePublication(pub); setShowDeleteModal(true) }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -359,7 +468,7 @@ function PublicationsPage() {
               {pagination.totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
                   <p className="text-sm text-muted-foreground">
-                    Showing {(pagination.page - 1) * 10 + 1} to{' '}
+                    Showing {(pagination.page - 1) * 10 + 1}–
                     {Math.min(pagination.page * 10, pagination.total)} of {pagination.total}
                   </p>
                   <div className="flex items-center gap-2">
@@ -367,7 +476,7 @@ function PublicationsPage() {
                       variant="outline"
                       size="sm"
                       disabled={pagination.page === 1}
-                      onClick={() => fetchPublications(pagination.page - 1)}
+                      onClick={() => handlePageChange(pagination.page - 1)}
                     >
                       <ChevronLeft className="h-4 w-4 mr-1" />
                       Previous
@@ -379,7 +488,7 @@ function PublicationsPage() {
                       variant="outline"
                       size="sm"
                       disabled={!pagination.hasNextPage}
-                      onClick={() => fetchPublications(pagination.page + 1)}
+                      onClick={() => handlePageChange(pagination.page + 1)}
                     >
                       Next
                       <ChevronRight className="h-4 w-4 ml-1" />
@@ -389,19 +498,28 @@ function PublicationsPage() {
               )}
             </>
           ) : (
-            <div className="text-center py-12">
-              <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground mb-4">No publications found</p>
-              <Button onClick={openCreateModal}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add your first publication
-              </Button>
+            <div className="text-center py-16">
+              <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+              <p className="text-muted-foreground mb-2 font-medium">
+                {hasActiveFilters ? 'No publications match your search' : 'No publications yet'}
+              </p>
+              {hasActiveFilters ? (
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  <X className="h-4 w-4 mr-2" />
+                  Clear filters
+                </Button>
+              ) : (
+                <Button onClick={openCreateModal}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add your first publication
+                </Button>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Create/Edit Modal */}
+      {/* Create / Edit Modal */}
       {showModal && (
         <PublicationModal
           publication={editPublication}
@@ -410,16 +528,13 @@ function PublicationsPage() {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation */}
       {showDeleteModal && (
         <DeleteModal
           title="Delete Publication"
           message={`Are you sure you want to delete "${deletePublication?.title}"? This action cannot be undone.`}
           onConfirm={handleDelete}
-          onCancel={() => {
-            setShowDeleteModal(false)
-            setDeletePublication(null)
-          }}
+          onCancel={() => { setShowDeleteModal(false); setDeletePublication(null) }}
           loading={deleting}
         />
       )}

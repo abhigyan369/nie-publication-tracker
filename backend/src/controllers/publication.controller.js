@@ -53,6 +53,20 @@ class PublicationController {
   }
 
   /**
+   * Get autocomplete suggestions
+   * GET /api/v1/publications/suggestions?q=...
+   */
+  async getSearchSuggestions(req, res, next) {
+    try {
+      const { q, limit } = req.query
+      const suggestions = await publicationService.getSearchSuggestions(q, parseInt(limit) || 8)
+      return ApiResponse.success(res, suggestions)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  /**
    * Get publication statistics
    * GET /api/v1/publications/stats
    */
