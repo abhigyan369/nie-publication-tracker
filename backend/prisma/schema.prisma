@@ -1,10 +1,12 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 // ============================================
@@ -337,6 +339,58 @@ model Faculty {
   department Department @relation(fields: [departmentId], references: [id])
 
   @@map("faculty")
+}
+
+// ============================================
+// RAG CHATBOT MODELS
+// ============================================
+
+model Embedding {
+  id         String   @id @default(cuid())
+  sourceId   String
+  sourceType String
+  content    String
+  embedding  Unsupported("vector(384)")?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([sourceType])
+  @@index([sourceId])
+  @@map("embeddings")
+}
+
+model ChatSession {
+  id        String         @id @default(cuid())
+  userId    String
+  title     String?
+  messages  ChatMessage[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([userId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id         String       @id @default(cuid())
+  sessionId  String
+  role       MessageRole
+  content    String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
 }
 
 // ============================================
