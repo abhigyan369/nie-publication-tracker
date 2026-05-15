@@ -8,6 +8,20 @@ const router = express.Router();
 router.use(authenticate);
 
 /**
+ * @route GET /api/chat/test-groq
+ * @desc Test Groq connectivity without RAG
+ * @access Private
+ */
+router.get('/test-groq', chatController.testGroq);
+
+/**
+ * @route GET /api/chat/test-rag
+ * @desc Test vector retrieval without Groq
+ * @access Private
+ */
+router.get('/test-rag', chatController.testRag);
+
+/**
  * @route POST /api/chat
  * @desc Generate an AI response based on vector context
  * @access Private

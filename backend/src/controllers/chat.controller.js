@@ -16,12 +16,27 @@ class ChatController {
       const { message, sessionId } = req.body;
       const userId = req.user.id;
 
+      logger.info('Incoming chat request', {
+        userId,
+        hasMessage: typeof message === 'string' && message.trim().length > 0,
+        messageLength: typeof message === 'string' ? message.length : 0,
+        messagePreview: typeof message === 'string' ? message.slice(0, 250) : null,
+        sessionId: sessionId || null,
+        bodyKeys: Object.keys(req.body || {}),
+      });
+
       if (!message) {
         return res.status(400).json({ success: false, message: 'Message is required' });
       }
 
       // Generate response using RAG service
       const aiResponse = await ragService.generateResponse(message);
+      logger.info('Chat RAG response generated', {
+        userId,
+        sessionId: sessionId || null,
+        answerLength: aiResponse?.answer?.length ?? 0,
+        retrievedContextCount: aiResponse?.retrievedContexts?.length ?? 0,
+      });
 
       // Handle session & history persistence
       let currentSessionId = sessionId;
@@ -62,7 +77,63 @@ class ChatController {
       }, 'Chat response generated successfully');
 
     } catch (error) {
-      logger.error('Chat Controller Error:', error);
+      logger.error('Chat Controller Error', {
+        message: error.message,
+        stage: error.stage,
+        stack: error.stack,
+        details: error.details,
+      });
+      next(error);
+    }
+  }
+
+  /**
+   * Test Groq without the RAG pipeline.
+   * GET /api/chat/test-groq
+   */
+  async testGroq(req, res, next) {
+    try {
+      const response = await ragService.testGroq();
+      return ApiResponse.success(res, response, 'Groq test completed successfully');
+    } catch (error) {
+      logger.error('Groq test route failed', {
+        message: error.message,
+        stack: error.stack,
+        details: error.details,
+      });
+      next(error);
+    }
+  }
+
+  /**
+   * Test vector retrieval without calling Groq.
+   * GET /api/chat/test-rag?q=...
+   */
+  async testRag(req, res, next) {
+    try {
+      const question = req.query.q || 'Show publication statistics';
+      const retrievalService = (await import('../services/retrievalService.js')).default;
+      const documents = await retrievalService.retrieveDocuments(question, 5);
+
+      return ApiResponse.success(res, {
+        question,
+        count: documents.length,
+        documents: documents.map((doc) => ({
+          id: doc.id,
+          sourceId: doc.sourceId,
+          sourceType: doc.sourceType,
+          contentLength: doc.content?.length ?? 0,
+          contentPreview: String(doc.content ?? '').slice(0, 500),
+          metadata: doc.metadata ?? null,
+        })),
+      }, 'RAG retrieval test completed successfully');
+    } catch (error) {
+      logger.error('RAG retrieval test route failed', {
+        message: error.message,
+        stage: error.stage,
+        stack: error.stack,
+        details: error.details,
+      });
       next(error);
     }
   }

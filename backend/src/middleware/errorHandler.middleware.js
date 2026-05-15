@@ -11,6 +11,8 @@ export const errorHandler = (err, req, res, next) => {
   logger.error({
     message: err.message,
     stack: err.stack,
+    stage: err.stage,
+    details: err.details,
     path: req.path,
     method: req.method,
     ip: req.ip,
@@ -44,6 +46,8 @@ export const errorHandler = (err, req, res, next) => {
     success: false,
     message,
     errors: error.errors || [],
+    stage: process.env.NODE_ENV === 'development' ? err.stage : undefined,
+    details: process.env.NODE_ENV === 'development' ? err.details : undefined,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     timestamp: new Date().toISOString(),
   })
