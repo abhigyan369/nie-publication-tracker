@@ -14,6 +14,7 @@ import departmentRoutes from './routes/department.routes.js'
 import analyticsRoutes from './routes/analytics.routes.js'
 import workflowRoutes from './routes/workflow.routes.js'
 import excelImportRoutes from './routes/excel-import.routes.js'
+import chatRoutes from './routes/chat.routes.js'
 
 // Middleware imports
 import { errorHandler } from './middleware/errorHandler.middleware.js'
@@ -95,6 +96,7 @@ app.use('/api/v1/departments', departmentRoutes)
 app.use('/api/v1/analytics', analyticsRoutes)
 app.use('/api/v1/workflow', workflowRoutes)
 app.use('/api/v1/import', excelImportRoutes)
+app.use('/api/chat', chatRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
