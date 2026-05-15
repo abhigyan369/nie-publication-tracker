@@ -1,11 +1,11 @@
 import express from 'express';
 import chatController from '../controllers/chat.controller.js';
-import { requireAuth } from '../middleware/auth.middleware.js';
+import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // All chat routes require authentication
-router.use(requireAuth);
+router.use(authenticate);
 
 /**
  * @route POST /api/chat
