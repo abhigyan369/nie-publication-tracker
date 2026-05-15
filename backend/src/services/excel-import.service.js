@@ -2,6 +2,7 @@ import XLSX from 'xlsx'
 import prisma from '../config/database.config.js'
 import { ApiError } from '../utils/response.util.js'
 import logger from '../utils/logger.util.js'
+import embeddingService from './embeddingService.js'
 
 // Column mapping from NIE Excel format to database fields
 const COLUMN_MAPPING = {
@@ -60,6 +61,15 @@ const STATUS_MAPPING = {
 }
 
 class NIEExcelImportService {
+  async syncPublicationEmbeddingSafely(publicationId) {
+    try {
+      await embeddingService.syncPublicationEmbedding(publicationId)
+      logger.info(`Publication embedding created after import: ${publicationId}`)
+    } catch (error) {
+      logger.error(`Failed to create imported publication embedding ${publicationId}:`, error)
+    }
+  }
+
   /**
    * Parse Excel file with NIE format
    */
@@ -484,6 +494,7 @@ class NIEExcelImportService {
       failed: 0,
       errors: [],
     }
+    const importedPublicationIds = []
 
     await prisma.$transaction(async (tx) => {
       for (const record of records) {
@@ -505,7 +516,7 @@ class NIEExcelImportService {
           }
 
           // Create publication
-          await tx.publication.create({
+          const publication = await tx.publication.create({
             data: {
               title: record.title,
               publicationType: record.publicationType || 'JOURNAL_ARTICLE',
@@ -530,6 +541,7 @@ class NIEExcelImportService {
             },
           })
 
+          importedPublicationIds.push(publication.id)
           result.imported++
         } catch (error) {
           result.failed++
@@ -541,6 +553,10 @@ class NIEExcelImportService {
         }
       }
     })
+
+    for (const publicationId of importedPublicationIds) {
+      await this.syncPublicationEmbeddingSafely(publicationId)
+    }
 
     return result
   }

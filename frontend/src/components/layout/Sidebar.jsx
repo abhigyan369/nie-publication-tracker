@@ -15,6 +15,7 @@ import {
   CheckSquare,
   Activity,
   Upload,
+  Bot,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 
@@ -38,6 +39,11 @@ const sidebarLinks = [
     title: 'Analytics',
     href: '/analytics',
     icon: BarChart3,
+  },
+  {
+    title: 'AI Assistant',
+    href: '/chat',
+    icon: Bot,
   },
   {
     title: 'Notifications',

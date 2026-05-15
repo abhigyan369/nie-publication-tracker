@@ -1,8 +1,27 @@
 import prisma from '../config/database.config.js'
 import { ApiError } from '../utils/response.util.js'
 import logger from '../utils/logger.util.js'
+import embeddingService from './embeddingService.js'
 
 class PublicationService {
+  async syncPublicationEmbeddingSafely(publicationId, action) {
+    try {
+      await embeddingService.syncPublicationEmbedding(publicationId)
+      logger.info(`Publication embedding ${action}: ${publicationId}`)
+    } catch (error) {
+      logger.error(`Failed to ${action} publication embedding ${publicationId}:`, error)
+    }
+  }
+
+  async deletePublicationEmbeddingSafely(publicationId) {
+    try {
+      await embeddingService.deleteEmbedding(publicationId, 'PUBLICATION')
+      logger.info(`Publication embedding deleted: ${publicationId}`)
+    } catch (error) {
+      logger.error(`Failed to delete publication embedding ${publicationId}:`, error)
+    }
+  }
+
   /**
    * Get all publications with filtering, search, pagination, and sorting
    */
@@ -268,6 +287,7 @@ class PublicationService {
 
     // Log activity
     await this.logActivity(user.id, 'CREATE', 'Publication', publication.id, { title: publication.title })
+    await this.syncPublicationEmbeddingSafely(publication.id, 'created')
 
     logger.info(`Publication created: ${publication.id} by user ${user.id}`)
 
@@ -320,6 +340,7 @@ class PublicationService {
     })
 
     await this.logActivity(user.id, 'UPDATE', 'Publication', publicationId, { title: updated.title })
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated')
 
     return updated
   }
@@ -345,6 +366,7 @@ class PublicationService {
     })
 
     await this.logActivity(user.id, 'DELETE', 'Publication', publicationId, { title: publication.title })
+    await this.deletePublicationEmbeddingSafely(publicationId)
 
     logger.info(`Publication deleted: ${publicationId} by user ${user.id}`)
   }
@@ -391,6 +413,7 @@ class PublicationService {
     await this.logActivity(user.id, 'ADD_COAUTHOR', 'Publication', publicationId, {
       coAuthorName: coAuthor.name,
     })
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after co-author add')
 
     return coAuthor
   }
@@ -411,10 +434,14 @@ class PublicationService {
       throw ApiError.forbidden('You can only modify co-authors of your own publications')
     }
 
-    return prisma.coAuthor.update({
+    const coAuthor = await prisma.coAuthor.update({
       where: { id: coauthorId, publicationId },
       data,
     })
+
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after co-author update')
+
+    return coAuthor
   }
 
   /**
@@ -440,6 +467,7 @@ class PublicationService {
     await this.logActivity(user.id, 'REMOVE_COAUTHOR', 'Publication', publicationId, {
       coauthorId,
     })
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after co-author removal')
   }
 
   /**
@@ -481,6 +509,7 @@ class PublicationService {
     await this.logActivity(user.id, 'UPLOAD_FILE', 'Publication', publicationId, {
       fileType,
     })
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after file upload')
 
     return updated
   }

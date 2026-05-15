@@ -71,6 +71,47 @@ class EmbeddingService {
   }
 
   /**
+   * Removes an embedding for a source record.
+   * Used when publications are deleted or excluded from searchable context.
+   */
+  async deleteEmbedding(sourceId, sourceType = 'PUBLICATION') {
+    await prisma.$executeRaw`
+      DELETE FROM embeddings
+      WHERE "sourceId" = ${sourceId} AND "sourceType" = ${sourceType};
+    `;
+  }
+
+  /**
+   * Synchronizes a single publication into the vector database.
+   * If the publication no longer exists or is soft-deleted, its embedding is removed.
+   */
+  async syncPublicationEmbedding(publicationId) {
+    const publication = await prisma.publication.findUnique({
+      where: { id: publicationId },
+      include: {
+        author: true,
+        coAuthors: true,
+      },
+    });
+
+    if (!publication || publication.isDeleted) {
+      await this.deleteEmbedding(publicationId, 'PUBLICATION');
+      return { sourceId: publicationId, sourceType: 'PUBLICATION', action: 'deleted' };
+    }
+
+    const content = documentFormatter.formatPublication(publication);
+    if (!content) {
+      await this.deleteEmbedding(publicationId, 'PUBLICATION');
+      return { sourceId: publicationId, sourceType: 'PUBLICATION', action: 'skipped' };
+    }
+
+    const vector = await this.generateEmbedding(content);
+    await this.storeEmbedding(publication.id, 'PUBLICATION', content, vector);
+
+    return { sourceId: publication.id, sourceType: 'PUBLICATION', action: 'synced' };
+  }
+
+  /**
    * Synchronizes all publication records into embeddings.
    */
   async syncEmbeddings() {

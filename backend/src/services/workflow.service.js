@@ -1,6 +1,7 @@
 import prisma from '../config/database.config.js'
 import { ApiError } from '../utils/response.util.js'
 import logger from '../utils/logger.util.js'
+import embeddingService from './embeddingService.js'
 
 /**
  * Valid status transitions and who can perform them
@@ -16,6 +17,24 @@ const STATUS_TRANSITIONS = {
 }
 
 class WorkflowService {
+  async syncPublicationEmbeddingSafely(publicationId, action) {
+    try {
+      await embeddingService.syncPublicationEmbedding(publicationId)
+      logger.info(`Publication embedding ${action}: ${publicationId}`)
+    } catch (error) {
+      logger.error(`Failed to ${action} publication embedding ${publicationId}:`, error)
+    }
+  }
+
+  async deletePublicationEmbeddingSafely(publicationId) {
+    try {
+      await embeddingService.deleteEmbedding(publicationId, 'PUBLICATION')
+      logger.info(`Publication embedding deleted: ${publicationId}`)
+    } catch (error) {
+      logger.error(`Failed to delete publication embedding ${publicationId}:`, error)
+    }
+  }
+
   /**
    * Get pending publications for review
    */
@@ -199,7 +218,7 @@ class WorkflowService {
    * Change publication status with validation
    */
   async changeStatus(publicationId, newStatus, comment, user, attachmentsUrl = null) {
-    return await prisma.$transaction(async (tx) => {
+    const updatedPublication = await prisma.$transaction(async (tx) => {
       // Get current publication
       const publication = await tx.publication.findUnique({
         where: { id: publicationId },
@@ -305,13 +324,17 @@ class WorkflowService {
 
       return updatedPublication
     })
+
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after status change')
+
+    return updatedPublication
   }
 
   /**
    * Submit publication for review
    */
   async submitForReview(publicationId, user) {
-    return await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const publication = await tx.publication.findUnique({
         where: { id: publicationId },
       })
@@ -373,13 +396,17 @@ class WorkflowService {
 
       return updated
     })
+
+    await this.syncPublicationEmbeddingSafely(publicationId, 'updated after review submission')
+
+    return updated
   }
 
   /**
    * Soft delete publication
    */
   async softDelete(publicationId, user) {
-    return await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const publication = await tx.publication.findUnique({
         where: { id: publicationId },
       })
@@ -417,6 +444,10 @@ class WorkflowService {
 
       return updated
     })
+
+    await this.deletePublicationEmbeddingSafely(publicationId)
+
+    return updated
   }
 
   /**
@@ -458,6 +489,8 @@ class WorkflowService {
         details: { title: publication.title },
       },
     })
+
+    await this.syncPublicationEmbeddingSafely(publicationId, 'restored')
 
     return updated
   }

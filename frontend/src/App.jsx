@@ -15,6 +15,7 @@ import AdminWorkflowPage from './pages/admin/AdminWorkflowPage'
 import AuditLogsPage from './pages/admin/AuditLogsPage'
 import NotificationsPage from './pages/notifications/NotificationsPage'
 import ImportPage from './pages/import/ImportPage'
+import ChatPage from './pages/chat/ChatPage'
 
 function ProtectedRoute({ children }) {
   const { user, authLoading } = useAuth()
@@ -122,6 +123,7 @@ function App() {
         <Route path="publications/:id/timeline" element={<StatusTimeline />} />
         <Route path="faculty" element={<FacultyPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="chat" element={<ChatPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
 

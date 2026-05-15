@@ -10,6 +10,7 @@ const pageTitles = {
   '/publications/': 'Publication Details',
   '/faculty': 'Faculty',
   '/analytics': 'Analytics',
+  '/chat': 'AI Assistant',
   '/settings': 'Settings',
 }
 
